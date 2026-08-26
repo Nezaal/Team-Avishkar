@@ -1,0 +1,18 @@
+sih26166-mvp/
+
+├── app.py                  # Streamlit entrypoint — upload, Register button, display panes
+├── pipeline/
+│   ├── __init__.py
+│   ├── preprocess.py       # grayscale, contrast norm, CLAHE, pyramid downsample
+│   ├── features.py         # SIFT detect + describe
+│   ├── matching.py         # BFMatcher/FLANN + Lowe's ratio test
+│   ├── geometry.py         # RANSAC, homography estimation, grid-based spatial filter
+│   ├── warp.py             # warp source into reference frame, overlay/blink render
+│   └── metrics.py          # inlier ratio, coverage score, metrics JSON
+├── data/
+│   ├── raw/                # source + reference images, untouched
+│   └── outputs/            # registered image, point CSV/JSON, metrics JSON per run
+├── notebooks/
+│   └── explore.ipynb       # throwaway experiments, not shipped code
+├── requirements.txt
+└── README.md               # how to run, one command
