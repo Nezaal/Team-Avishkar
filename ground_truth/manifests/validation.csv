@@ -1,0 +1,21 @@
+pair_id,ground_truth_type,control_point_count,independent,mean_reference_quality,spatial_coverage,independent_reference,pixel_level_validation,subpixel_validation,recommended_for_mvp,limitations
+pair_001,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_002,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_003,DERIVED_CORRESPONDENCE,0,NO,B,6x6_grid_0_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_004,DERIVED_CORRESPONDENCE,0,NO,B,6x6_grid_0_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_005,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_006,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_007,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_008,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_009,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_010,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_011,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_012,GEOREFERENCED_REFERENCE,36,YES,B,6x6_grid_36_pts,YES,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_013,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_014,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_015,DERIVED_CORRESPONDENCE,0,NO,C,6x6_grid_0_pts,NO,NO,NO,CONDITIONAL,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_016,DERIVED_CORRESPONDENCE,36,NO,C,6x6_grid_36_pts,NO,NO,NO,CONDITIONAL,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_017,DERIVED_CORRESPONDENCE,36,NO,C,6x6_grid_36_pts,NO,NO,NO,CONDITIONAL,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_018,DERIVED_CORRESPONDENCE,36,NO,C,6x6_grid_36_pts,NO,NO,NO,CONDITIONAL,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_019,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
+pair_020,DERIVED_CORRESPONDENCE,36,NO,B,6x6_grid_36_pts,NO,NO,NO,YES,Geospatially derived only. No manual annotation. TMC-2 pixel coords unknown. Images need PRADAN download.
