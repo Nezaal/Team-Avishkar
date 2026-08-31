@@ -1,5 +1,9 @@
 # progress.md — SIH26166 Development History
 
+> **Rule:** This file is APPEND-ONLY. Never delete or overwrite an existing entry.
+> Every entry MUST include `Git branch:` and `Author/Agent:`.
+> New entries go at the BOTTOM of this file.
+
 ---
 
 ## Entry 001 — Ground Truth Dataset Build
@@ -8,18 +12,17 @@
 Date/time:       2026-08-31 (15:14–15:31 IST)
 Git branch:      main
 Author/Agent:    Antigravity (AI agent)
+Workstream:      ground_truth
 Change:          Built ground_truth/ dataset from scratch — data engineering only
 Files/modules:   ground_truth/ (new directory tree, 60+ files)
 ```
 
-### Task
+### What Changed
 
 Build the SIH26166 ground-truth dataset for the OHRC <-> TMC-2 image-registration MVP.
 Data engineering task only — no CV pipeline code.
 
----
-
-### Research Performed (Scraping and Investigation)
+### Research Performed
 
 #### 1. Project Documents Read
 - AGENT.md, SIH26166_MVP_SRS.md, SIH26166_MVP_PRD.md
@@ -73,8 +76,6 @@ These OHRC IDs match IIT CSV entries (cross-validated).
 - Corner coordinate metadata available via IIT CSV.
 - Decision: proceed coordinate-only, document download instructions.
 
----
-
 ### How Control Points Were Derived
 
 Process for all 612 control points (verification_method = geospatially_derived):
@@ -88,12 +89,12 @@ Process for all 612 control points (verification_method = geospatially_derived):
    - TMC-2 pixel = UNKNOWN (image dimensions not in TMC-2 CSV).
 6. Record with explicit verification_method = geospatially_derived.
 
-This is NOT pixel-level ground truth. It is geographic reference derivable to ~pixel-width accuracy at OHRC resolution, but not independently verified.
-
----
+This is NOT pixel-level ground truth. It is geographic reference derivable to
+~pixel-width accuracy at OHRC resolution, but not independently verified.
 
 ### Files Created
 
+```
 ground_truth/
   README.md
   manifests/pairs.csv (20 pairs, all schema fields)
@@ -105,11 +106,13 @@ ground_truth/
   sources/build_dataset.py (reproducible builder)
   validation/rejected.csv (7 rejected candidates)
   validation/synthetic/synthetic_gt.csv (5 synthetic transform definitions)
+```
 
----
+### Result
 
-### Numbers
+SUCCESS
 
+```
 Pairs created:               20
 OHRC+TMC-2 pairs:            20
 Quality B pairs:             16
@@ -120,26 +123,14 @@ Points per pair (confirmed): 36 (6x6 grid)
 Independent references:       1 (pair_012, LOLA via USGS/ASP)
 Synthetic GT samples:         5
 Rejected candidates:          7
+```
 
----
+Ground Truth Classification:
+- DERIVED_CORRESPONDENCE:   19 pairs (corner coordinate interpolation, NOT independent)
+- GEOREFERENCED_REFERENCE:   1 pair (pair_012, USGS-documented, LOLA independent reference)
+- EXACT_SYNTHETIC_GT:        5 samples (synthetic_gt.csv, exact known transformations)
 
-### Ground Truth Classification
-
-DERIVED_CORRESPONDENCE:   19 pairs (corner coordinate interpolation, same-mission metadata, NOT independent)
-GEOREFERENCED_REFERENCE:   1 pair (pair_012, USGS-documented product, LOLA independent reference)
-EXACT_SYNTHETIC_GT:        5 samples (synthetic_gt.csv, exact known transformations)
-
----
-
-### TMC-2 Product ID Status
-
-19 of 20 pairs use provisional TMC-2 names (e.g., ch2_tmc_ncn_SouthPolar_41E_grd).
-Exact IDs require running IIT ohrc_tmc_overlap.py against coordinates_tmc2_iit.csv.
-pair_012 has exact ID from USGS/ASP: ch2_tmc_ndn_20231101T0125121377_d_oth_d18.
-
----
-
-### Problems and Limitations Discovered
+### Problems/Limitations
 
 1. Images behind PRADAN login — pixel validation impossible without account.
 2. TMC-2 image dimensions not in IIT CSV — TMC-2 pixel (x,y) CANNOT be computed.
@@ -147,24 +138,8 @@ pair_012 has exact ID from USGS/ASP: ch2_tmc_ndn_20231101T0125121377_d_oth_d18.
 4. 4 pairs (015-018) have inferred overlap only — not confirmed by IIT overlap script.
 5. Only 1 pair has external independent reference (LOLA).
 6. Zero manually verified pixel correspondences in entire dataset.
-7. AGENT.md living files (progress.md, flow.md, technical-questions.md) not created during task — being created now retroactively.
 
----
-
-### Validation
-
-Verified by checking:
-- pairs.csv: 20 rows, all schema fields present
-- validation.csv: 20 rows
-- metadata.json: 20 files (one per pair)
-- control_points/: 17 CSV files x 36 rows = 612 points
-- rejected.csv: 7 rows
-- synthetic_gt.csv: 5 rows
-- README.md: complete with all required sections
-
----
-
-### Next Steps
+### Next Step
 
 1. PRADAN access -> download actual OHRC and TMC-2 image files for pairs 001, 005, 012.
 2. Run IIT ohrc_tmc_overlap.py to recover exact TMC-2 product IDs for 6 TMC scenes.
@@ -172,3 +147,89 @@ Verified by checking:
 4. LOLA download: clip LDEM_60S to 67-71 S, 19-22 E for pair_012 independent validation.
 5. Once TMC-2 image dims known: re-run build_dataset.py to populate reference_x/reference_y.
 6. Proceed to CV pipeline implementation (separate task).
+
+---
+
+## Entry 002 — Documentation Structure, Task Division & AGENT.md Multi-Branch Update
+
+```
+Date/time:       2026-08-31 (16:14–16:32 IST)
+Git branch:      main
+Author/Agent:    Antigravity (AI agent)
+Workstream:      shared
+Change:          Created doc/frontend/, doc/backend/, ground_truth/TASKS.md,
+                 REPO_ANALYSIS.md, doc/README.md. Rewrote AGENT.md with
+                 explicit multi-branch / multi-teammate conflict rules.
+Files/modules:   AGENT.md, REPO_ANALYSIS.md, doc/README.md, doc/frontend/*,
+                 doc/backend/*, ground_truth/TASKS.md
+```
+
+### What Changed
+
+1. **AGENT.md** — fully rewritten to add:
+   - Section 5: Multi-Branch / Multi-Teammate Rules (branch naming convention,
+     `flow.md` as merge-gate, conflict resolution for all 3 living files,
+     workstream ownership table, pre-PR checklist, contracts/ change protocol)
+   - Section 12: Workstream Ownership Summary
+   - Section 15: Quick Reference Card
+   - Updated `progress.md` entry format to include `Workstream:` field
+   - Updated `technical-questions.md` question format to include `Branch-raised:`
+     and `Last-updated-by:` fields
+
+2. **doc/README.md** — created master documentation index
+
+3. **doc/frontend/** — created with 4 files:
+   - README.md (ownership table)
+   - FRONTEND_PLAN.md (F1–F12 tasks with acceptance criteria)
+   - FRONTEND_AGENT.md (developer protocol)
+   - MOCK_DATA_GUIDE.md (mock data schema + null display rules)
+
+4. **doc/backend/** — created with 4 files:
+   - README.md (ownership table)
+   - BACKEND_PLAN.md (B1–B12 modules with I/O specs)
+   - BACKEND_AGENT.md (developer protocol)
+   - API_CONTRACT.md (all endpoints + full result JSON schema)
+
+5. **ground_truth/TASKS.md** — created 10-task ground truth work plan
+   (GT-00 through GT-10) with assignee types, dependencies, effort estimates
+
+6. **REPO_ANALYSIS.md** — created root-level project status document
+
+### Technical Impact
+
+- All future progress.md entries MUST include `Git branch:` and `Author/Agent:`.
+- `flow.md` must NOT be updated from feature branches — only after merge to main.
+- Branch naming convention is now defined: frontend/* | backend/* | ground_truth/* | fix/*.
+- Conflict resolution protocol is defined for all 3 living files.
+
+### Validation
+
+Files verified present:
+- AGENT.md (rewritten, 15 sections)
+- REPO_ANALYSIS.md (root level)
+- doc/README.md
+- doc/frontend/README.md, FRONTEND_PLAN.md, FRONTEND_AGENT.md, MOCK_DATA_GUIDE.md
+- doc/backend/README.md, BACKEND_PLAN.md, BACKEND_AGENT.md, API_CONTRACT.md
+- ground_truth/TASKS.md
+
+### Result
+
+SUCCESS
+
+### Problems/Limitations
+
+None. Pure documentation — no code changed.
+
+### Next Step
+
+1. Create `contracts/result.schema.json` and `contracts/example_result.json`.
+2. Create Git branches: `frontend/dashboard-skeleton` and `backend/pipeline-skeleton`.
+3. Assign GT-07 and GT-08 (no PRADAN needed) to a teammate immediately.
+
+---
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- NEW ENTRIES GO BELOW THIS LINE                                         -->
+<!-- Format: ## Entry NNN — <title>                                         -->
+<!-- MANDATORY FIELDS: Date/time, Git branch, Author/Agent, Workstream      -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->

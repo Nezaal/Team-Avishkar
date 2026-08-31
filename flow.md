@@ -1,36 +1,216 @@
-# SIH26166 Engineering Flow
+# flow.md — SIH26166 Current System Architecture
 
-## Overview
-This document tracks the current development flow for the SIH26166 MVP.
+> **Rule:** This file reflects ONLY the merged, accepted architecture on `main`.
+> Do NOT update this file from a feature branch.
+> Only update after a branch is merged to `main` and the architecture has actually changed.
+> Record the update in `progress.md` with the branch name.
 
-## Current Stage: Data Engineering (Ground Truth Collection)
-**Status:** In Progress (Dataset structure built, data acquisition pending PRADAN access)
+---
 
-1. **Scoping & Setup [DONE]**
-   - Read SRD, PRD, AGENT.md
-   - Identify sources (IIT repo, USGS/ASP, PRADAN, LOLA)
+## Last Updated
 
-2. **Data Scraping & Extraction [DONE]**
-   - Downloaded OHRC and TMC-2 metadata from IIT repository
-   - Extracted 25 OHRC scenes
-   - Extracted inferred TMC-2 scenes
+```
+Date:     2026-08-31
+Branch:   main
+Author:   Antigravity (AI agent)
+Entry:    progress.md Entry 002
+```
 
-3. **Dataset Structure Generation [DONE]**
-   - Generated `ground_truth/` directory tree
-   - Built 20 OHRC ↔ TMC-2 pair directories
-   - Created control point CSVs using bilinear geographic interpolation
-   - Built manifest and validation CSVs
+---
 
-4. **Image Data Acquisition [PENDING]**
-   - Download OHRC `.img` files from PRADAN
-   - Download TMC-2 `.img` files from PRADAN
+## Current System Stage
 
-5. **Validation & Finalization [PENDING]**
-   - Determine exact TMC-2 product IDs via `ohrc_tmc_overlap.py`
-   - Recompute TMC-2 pixel coordinates once image dimensions are known
-   - Manually annotate ~30 pixel-level control points for Pairs A, B, C
+**Data Engineering** — ground truth dataset built, CV pipeline not yet started.
 
-## Next Stage: CV Pipeline (Future)
-- SIFT / SuperGlue implementation
-- Homography estimation (RANSAC)
-- Validation against ground truth dataset
+```
+[DONE]   Ground truth dataset (ground_truth/)
+[DONE]   Documentation structure (doc/)
+[DONE]   AGENT.md multi-branch protocol
+[PENDING] contracts/ — result schema + example JSON
+[PENDING] frontend/ — Streamlit dashboard
+[PENDING] backend/  — CV pipeline + API
+```
+
+---
+
+## Architecture Overview
+
+```
+                    ┌────────────────────┐
+                    │      FRONTEND      │
+                    │  Streamlit Dashboard│
+                    │  (NOT BUILT YET)   │
+                    └─────────┬──────────┘
+                              │
+                         HTTP / JSON
+                              │
+                    ┌─────────▼──────────┐
+                    │       BACKEND      │
+                    │      API Server    │
+                    │  (NOT BUILT YET)   │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │    CV Pipeline     │
+                    │  (NOT BUILT YET)   │
+                    ├────────────────────┤
+                    │ Input/Metadata     │
+                    │ Pair Analyzer      │
+                    │ Preprocessing      │
+                    │ SIFT               │
+                    │ Matching           │
+                    │ Filtering          │
+                    │ RANSAC             │
+                    │ Homography         │
+                    │ Registration       │
+                    │ Validation         │
+                    └─────────┬──────────┘
+                              │
+                    Result JSON + artifacts
+                              │
+                    ┌─────────▼──────────┐
+                    │      FRONTEND      │
+                    │   Visual Evidence  │
+                    │  (NOT BUILT YET)   │
+                    └────────────────────┘
+```
+
+---
+
+## Repository Directory Map (Current)
+
+```
+Team-Avishkar/
+├── AGENT.md                   ← Master multi-branch agent protocol  [EXISTS]
+├── flow.md                    ← This file — current architecture    [EXISTS]
+├── progress.md                ← Development history                 [EXISTS]
+├── technical-questions.md     ← Technical knowledge base            [EXISTS]
+├── REPO_ANALYSIS.md           ← Project status overview             [EXISTS]
+│
+├── doc/                       ← Master documentation folder         [EXISTS]
+│   ├── README.md
+│   ├── SIH26166_MVP_PLAN.md
+│   ├── SIH26166_MVP_PRD_PARALLEL.md
+│   ├── SIH26166_MVP_SRS_PARALLEL.md
+│   ├── frontend/              ← Frontend documentation              [EXISTS]
+│   │   ├── README.md
+│   │   ├── FRONTEND_PLAN.md
+│   │   ├── FRONTEND_AGENT.md
+│   │   └── MOCK_DATA_GUIDE.md
+│   └── backend/               ← Backend documentation               [EXISTS]
+│       ├── README.md
+│       ├── BACKEND_PLAN.md
+│       ├── BACKEND_AGENT.md
+│       └── API_CONTRACT.md
+│
+├── ground_truth/              ← Reference dataset                   [EXISTS]
+│   ├── README.md
+│   ├── TASKS.md               ← Ground truth task list              [EXISTS]
+│   ├── manifests/             ← pairs.csv, validation.csv
+│   ├── pairs/                 ← pair_001 to pair_020 (metadata only)
+│   ├── control_points/        ← 17 CSVs × 36 derived points = 612
+│   ├── sources/               ← IIT CSVs + build_dataset.py
+│   └── validation/            ← rejected.csv, synthetic_gt.csv
+│
+├── contracts/                 ← Shared API schema         [NOT CREATED YET]
+│   ├── result.schema.json
+│   └── example_result.json
+│
+├── frontend/                  ← Streamlit dashboard       [NOT CREATED YET]
+│   ├── app/
+│   ├── components/
+│   ├── mock/
+│   └── assets/
+│
+└── backend/                   ← CV pipeline + API         [NOT CREATED YET]
+    ├── api/
+    ├── pipeline/
+    ├── validation/
+    ├── models/
+    └── tests/
+```
+
+---
+
+## Data Flow (Designed, Not Yet Implemented)
+
+```
+OHRC .img  +  TMC-2 .img
+        ↓
+    Backend: pair analysis
+        ↓
+    Backend: preprocessing (grayscale, CLAHE, resize)
+        ↓
+    Backend: SIFT (keypoints + descriptors, both images)
+        ↓
+    Backend: matching (BFMatcher/FLANN + Lowe ratio)
+        ↓
+    Backend: RANSAC → homography + inlier mask
+        ↓
+    Backend: registration (warpPerspective)
+        ↓
+    Backend: metrics (reprojection error, spatial coverage)
+        ↓
+    Backend: validation (synthetic + ground-truth CPs)
+        ↓
+    Backend: serialization → result.json + artifacts
+        ↓
+    Backend API: POST /register → result JSON
+        ↓
+    Frontend: dashboard renders result
+```
+
+---
+
+## Ground Truth State (Current)
+
+```
+Pairs:                20 (16 quality-B, 4 quality-C)
+Control points:       612 (geospatially_derived only — NOT pixel-verified)
+Independent refs:     1 (pair_012, LOLA/USGS)
+Synthetic GT:         5 (exact known transforms)
+Images downloaded:    0 (PRADAN login required)
+TMC-2 dims known:     NO (all UNKNOWN)
+Manual annotations:   0
+```
+
+---
+
+## Interface Contract (Designed, Not Yet in contracts/ directory)
+
+```json
+{
+  "pair": {},
+  "preprocessing": {},
+  "matching": {},
+  "geometry": {},
+  "registration": {},
+  "validation": {},
+  "artifacts": {},
+  "status": {}
+}
+```
+
+Full schema defined in `doc/backend/API_CONTRACT.md`.
+`contracts/` directory must be created and agreed before parallel dev starts.
+
+---
+
+## Branch / Workstream Map
+
+```
+Branch prefix        Owns
+──────────────────────────────────────────
+frontend/*           frontend/
+backend/*            backend/
+ground_truth/*       ground_truth/
+data/*               ground_truth/ (data download only)
+fix/*                any (hotfixes)
+```
+
+`flow.md` is updated **only after merge to main**.
+
+---
+
+*This file must never contain planned or future architecture as if it exists.*
+*It describes only what is currently merged and working on `main`.*
