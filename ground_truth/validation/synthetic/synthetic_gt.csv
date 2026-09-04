@@ -1,6 +1,0 @@
-sample_id,source_image,transformation_type,transformation_matrix,parameters,source_points,true_reference_points,notes
-syn_001,ch2_ohr_ncp_20200825T1127278043_d_img_d18,translation,"[[1,0,150],[0,1,75],[0,0,1]]","tx=150px,ty=75px",6x6_grid_center_of_image,"source_pts+[150,75]",Known translation. Exact GT. Use to validate pipeline coordinate handling.
-syn_002,ch2_ohr_ncp_20200825T1127278043_d_img_d18,rotation,"[[cos5,-sin5,cx*(1-cos5)+cy*sin5],[sin5,cos5,cy*(1-cos5)-cx*sin5],[0,0,1]]","angle=5deg,center=image_center",6x6_grid,apply_rotation,5-degree rotation. Tests rotation recovery. Exact GT.
-syn_003,ch2_ohr_ncp_20200825T1127278043_d_img_d18,scale,"[[0.85,0,0],[0,0.85,0],[0,0,1]]",scale=0.85x,6x6_grid,source_pts*0.85,15% scale. Partial model of OHRC/TMC resolution ratio. Exact GT.
-syn_004,ch2_ohr_ncp_20200825T1127278043_d_img_d18,affine,"[[0.95,-0.05,100],[0.05,0.95,50],[0,0,1]]",combined rotation+scale+translation,6x6_grid,apply_affine,Mild affine. Models OHRC/TMC geometric relationship. Exact GT.
-syn_005,ch2_ohr_ncp_20200825T1521048453_d_img_d18,mild_perspective,"[[1.02,0.01,80],[0.01,0.98,40],[0.000001,-0.000001,1]]",mild_perspective_warp,6x6_grid,apply_perspective,Mild perspective. Tests homography recovery. Different source for diversity. Exact GT.
