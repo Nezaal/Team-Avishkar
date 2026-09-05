@@ -110,11 +110,12 @@ def calculate_product_grid(width: int, height: int) -> Tuple[int, int, int]:
 class DatasetGenerator:
     """Product-by-product streaming dataset generator with disk safety & checkpointing."""
 
-    def __init__(self, output_dir: str = DATASET_DIR, catalog_path: str = CATALOG_PATH):
+    def __init__(self, output_dir: str = DATASET_DIR, catalog_path: str = CATALOG_PATH, checkpoint_interval: int = 25):
         self.output_dir = output_dir
         self.tiles_dir = os.path.join(output_dir, "tiles")
         self.manifest_path = os.path.join(output_dir, "dataset_manifest.json")
         self.catalog_path = catalog_path
+        self.checkpoint_interval = max(1, checkpoint_interval)
         
         os.makedirs(self.tiles_dir, exist_ok=True)
         self.manifest = self._load_or_init_manifest()
@@ -148,11 +149,14 @@ class DatasetGenerator:
             self.save_manifest(manifest_data)
             return manifest_data
 
-    def save_manifest(self, manifest_data: Dict[str, Any]):
-        """Save manifest atomically using temporary file rename with Windows retry loop."""
+    def save_manifest(self, manifest_data: Dict[str, Any], indent: Optional[int] = None):
+        """Save manifest atomically using compact JSON by default and Windows retry loop."""
         tmp_path = self.manifest_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
+            if indent is not None:
+                json.dump(manifest_data, f, indent=indent)
+            else:
+                json.dump(manifest_data, f)
         for attempt in range(6):
             try:
                 os.replace(tmp_path, self.manifest_path)
@@ -552,29 +556,30 @@ class DatasetGenerator:
                 self.manifest["tiles"][tile_id] = tile_record
                 done_tiles[tile_id] = tile_record
 
-            # Commit manifest update after each row strip
-            self.manifest["total_tiles"] = len(self.manifest["tiles"])
-            self.save_manifest(self.manifest)
-            
-            # Explicit garbage collection to prevent memory fragmentation
+            # Clean up row strip memory reference
+            del row_strip
             gc.collect()
 
-            # Print Progress Report
-            cur_done = len(done_tiles)
-            pct = (cur_done / expected_tiles) * 100.0
-            elapsed = time.time() - prod_start_time
-            speed = cur_done / elapsed if elapsed > 0 else 0.0
-            ram_mb = get_peak_ram_mb()
-            free_space_gb = get_disk_free_gb()
+            # Update in-memory tile count
+            self.manifest["total_tiles"] = len(self.manifest["tiles"])
 
-            if (r_idx + 1) % 2 == 0 or cur_done == expected_tiles:
+            # Checkpointed manifest persistence (every checkpoint_interval row strips or last strip)
+            if (r_idx + 1) % self.checkpoint_interval == 0 or (r_idx + 1) == n_rows:
+                self.save_manifest(self.manifest)
+
+            # Bounded Progress Reporting (every checkpoint_interval row strips or last strip)
+            cur_done = len(done_tiles)
+            if (r_idx + 1) % self.checkpoint_interval == 0 or (r_idx + 1) == n_rows or cur_done == expected_tiles:
+                pct = (cur_done / expected_tiles) * 100.0
+                elapsed = time.time() - prod_start_time
+                speed = cur_done / elapsed if elapsed > 0 else 0.0
+                ram_mb = get_peak_ram_mb()
+                free_space_gb = get_disk_free_gb()
                 print(
                     f"[{prod_idx:02d}/36] {pid[:32]}... | "
                     f"Progress: {cur_done:,}/{expected_tiles:,} ({pct:5.1f}%) | "
                     f"Speed: {speed:5.1f} tiles/s | "
-                    f"Net: {prod_network_bytes / (1024**2):6.1f}MB ({prod_http_requests} reqs) | "
-                    f"Disk: {prod_bytes_written / (1024**2):6.1f}MB (Free: {free_space_gb:.1f}GB) | "
-                    f"RAM: {ram_mb:.1f}MB"
+                    f"RAM: {ram_mb:.1f}MB | Free Disk: {free_space_gb:.1f}GB"
                 )
 
         # Product Completion Validation
@@ -631,7 +636,7 @@ class DatasetGenerator:
                 continue
 
             print(f"\n[SPAWNING PROCESS FOR PRODUCT {idx:02d}/{len(prods_to_process)}] {pid}")
-            cmd = [sys.executable, "-u", __file__, "--product-idx", str(idx)]
+            cmd = [sys.executable, "-u", __file__, "--product-idx", str(idx), "--checkpoint-interval", str(self.checkpoint_interval)]
             res = subprocess.run(cmd)
             
             # Reload manifest to get updated state after subprocess
@@ -823,9 +828,10 @@ if __name__ == "__main__":
     parser.add_argument("--ohrc-only", action="store_true", help="Generate OHRC products only (Products 1-15)")
     parser.add_argument("--limit-products", type=int, default=None, help="Limit maximum number of products to process")
     parser.add_argument("--product-idx", type=int, default=None, help="Process a single product by 1-based index (1..36)")
+    parser.add_argument("--checkpoint-interval", type=int, default=25, help="Row strip checkpoint interval for manifest persistence (default 25)")
     args = parser.parse_args()
 
-    generator = DatasetGenerator()
+    generator = DatasetGenerator(checkpoint_interval=args.checkpoint_interval)
 
     if args.audit_only:
         generator.startup_recovery_audit()

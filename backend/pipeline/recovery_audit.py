@@ -248,7 +248,7 @@ def audit():
 
     tmp_manifest = MANIFEST_PATH + ".tmp"
     with open(tmp_manifest, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+        json.dump(manifest, f)
     os.replace(tmp_manifest, MANIFEST_PATH)
     print(f"[RECONCILED MANIFEST] Atomic update complete. Preserved {len(reconciled_tiles)} valid tiles across {len(completed_products)} completed products.")
 

@@ -25,4 +25,6 @@ ground_truth/pradan_browser
 
 # Scratch and local downloads
 scratch/
-pradan_downloads/
+pradan_downloads/
+*.log
+
