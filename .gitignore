@@ -22,3 +22,9 @@ dataset/
 
 # browser cache (contains creds)
 ground_truth/pradan_browser
+
+# Scratch and local downloads
+scratch/
+pradan_downloads/
+*.log
+
