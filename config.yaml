@@ -1,0 +1,10 @@
+# ChandraMatch Global Configuration
+huggingface:
+  use_remote_first: true
+  api_key: "YOUR_HF_TOKEN"
+  dataset_base_url: "https://huggingface.co/datasets/akshitjn/my-large-dataset/resolve/main/"
+  repo_id: "akshitjn/my-large-dataset"
+
+local_storage:
+  raw_images_path: "dataset/pradan_downloads/"
+  ml_tiles_path: "dataset/streaming_dataset/tiles/"
