@@ -609,9 +609,14 @@ class DatasetGenerator:
 
         return True
 
-    def run_full_generation(self, limit_products: Optional[int] = None, ohrc_only: bool = False) -> bool:
+    def run_full_generation(self, limit_products: Optional[int] = None, ohrc_only: bool = False, tmc2_only: bool = False) -> bool:
         """Run product-by-product dataset generation."""
-        header_title = "STARTING STEP 46 — OHRC DATASET GENERATION PIPELINE (PRODUCTS 01-15 ONLY)" if ohrc_only else "STARTING STEP 46 — FULL DATASET GENERATION PIPELINE"
+        if ohrc_only:
+            header_title = "STARTING STEP 46 — OHRC DATASET GENERATION PIPELINE (PRODUCTS 01-15 ONLY)"
+        elif tmc2_only:
+            header_title = "STARTING STEP 46 — TMC-2 DATASET GENERATION PIPELINE (PRODUCTS 16-36 ONLY)"
+        else:
+            header_title = "STARTING STEP 46 — FULL DATASET GENERATION PIPELINE"
         print("\n" + "=" * 70)
         print(header_title)
         print("=" * 70)
@@ -624,6 +629,8 @@ class DatasetGenerator:
 
         if ohrc_only:
             prods_to_process = [p for p in self.products if p["sensor"] == "OHRC"]
+        elif tmc2_only:
+            prods_to_process = [p for p in self.products if p["sensor"] == "TMC-2"]
         else:
             prods_to_process = self.products[:limit_products] if limit_products else self.products
 
@@ -636,7 +643,9 @@ class DatasetGenerator:
                 continue
 
             print(f"\n[SPAWNING PROCESS FOR PRODUCT {idx:02d}/{len(prods_to_process)}] {pid}")
-            cmd = [sys.executable, "-u", __file__, "--product-idx", str(idx), "--checkpoint-interval", str(self.checkpoint_interval)]
+            # Find the product's absolute index (1-based) in self.products
+            abs_idx = self.products.index(prod) + 1
+            cmd = [sys.executable, "-u", __file__, "--product-idx", str(abs_idx), "--checkpoint-interval", str(self.checkpoint_interval)]
             res = subprocess.run(cmd)
             
             # Reload manifest to get updated state after subprocess
@@ -646,19 +655,28 @@ class DatasetGenerator:
                 print(f"\n[STOP SAFELY] Subprocess for Product {idx:02d} ({pid}) returned exit code {res.returncode}.")
                 if ohrc_only:
                     self.print_ohrc_summary_report(time.time() - global_start_time, completed=False)
+                elif tmc2_only:
+                    self.print_tmc2_summary_report(time.time() - global_start_time, completed=False)
                 else:
                     self.print_summary_report(completed=False)
                 return False
 
         global_elapsed = time.time() - global_start_time
         print("\n" + "=" * 70)
-        completion_msg = "ALL OHRC PRODUCTS (01-15) PROCESSED SUCCESSFULLY!" if ohrc_only else "ALL PRODUCTS PROCESSED SUCCESSFULLY!"
+        if ohrc_only:
+            completion_msg = "ALL OHRC PRODUCTS (01-15) PROCESSED SUCCESSFULLY!"
+        elif tmc2_only:
+            completion_msg = "ALL TMC-2 PRODUCTS (16-36) PROCESSED SUCCESSFULLY!"
+        else:
+            completion_msg = "ALL PRODUCTS PROCESSED SUCCESSFULLY!"
         print(completion_msg)
         print(f"Total Execution Time: {global_elapsed / 3600:.2f} hours ({global_elapsed:.1f} seconds)")
         print("=" * 70)
 
         if ohrc_only:
             self.print_ohrc_summary_report(global_elapsed, completed=True)
+        elif tmc2_only:
+            self.print_tmc2_summary_report(global_elapsed, completed=True)
         else:
             self.print_summary_report(completed=True)
         return True
@@ -728,6 +746,76 @@ class DatasetGenerator:
             split = p["split"]
             _, _, exp_t = calculate_product_grid(p["width"], p["height"])
             gen_t = sum(1 for t in ohrc_manifest_tiles.values() if t.get("product_id") == pid)
+            miss_t = exp_t - gen_t
+            status = "COMPLETE" if pid in completed_prods else (f"INTERRUPTED ({gen_t}/{exp_t})" if gen_t > 0 else "NOT STARTED")
+            print(f"{i:02d}  | {pid:42s} | {sensor:6s} | {split:5s} | {exp_t:9d} | {gen_t:14d} | {miss_t:15d} | {status:15s}")
+        print("-" * 105)
+        print("=" * 105 + "\n")
+
+    def print_tmc2_summary_report(self, global_elapsed: float, completed: bool = True):
+        """Print TMC-2 dataset audit & summary report (Products 16-36)."""
+        print("\n" + "=" * 105)
+        print("TMC-2 GENERATION COMPLETE")
+        print("=" * 105)
+
+        tmc2_products = [p for p in self.products if p["sensor"] == "TMC-2"]
+        tmc2_pids = set(p["product_id"] for p in tmc2_products)
+        all_manifest_tiles = self.manifest.get("tiles", {})
+        tmc2_manifest_tiles = {t_id: rec for t_id, rec in all_manifest_tiles.items() if rec.get("product_id") in tmc2_pids}
+        completed_prods = self.manifest.get("completed_products", [])
+        tmc2_completed = [pid for pid in completed_prods if pid in tmc2_pids]
+
+        actual_disk_files = 0
+        corrupt_files = 0
+        orphan_temps = 0
+        total_disk_bytes = 0
+
+        for p in tmc2_products:
+            p_dir = os.path.join(self.tiles_dir, p["product_id"])
+            if os.path.exists(p_dir):
+                for f in os.listdir(p_dir):
+                    f_path = os.path.join(p_dir, f)
+                    if f.endswith(".npz"):
+                        st_size = os.stat(f_path).st_size
+                        if st_size < 1024:
+                            corrupt_files += 1
+                        else:
+                            actual_disk_files += 1
+                            total_disk_bytes += st_size
+                    elif f.endswith(".tmp"):
+                        orphan_temps += 1
+
+        total_expected_tmc2_tiles = sum(calculate_product_grid(p["width"], p["height"])[2] for p in tmc2_products)
+        total_valid_tmc2_tiles = len(tmc2_manifest_tiles)
+        missing_invalid = total_expected_tmc2_tiles - total_valid_tmc2_tiles
+
+        avg_throughput = total_valid_tmc2_tiles / global_elapsed if global_elapsed > 0 else 0.0
+
+        print("\nA. EXECUTIVE SUMMARY (TMC-2 ONLY)")
+        print(f"  TMC-2 Products Completed:    {len(tmc2_completed)} / {len(tmc2_products)}")
+        print(f"  Total Expected TMC-2 Tiles:  {total_expected_tmc2_tiles:,}")
+        print(f"  Total Valid TMC-2 Tiles:     {total_valid_tmc2_tiles:,}")
+        print(f"  Missing / Invalid Tiles:     {missing_invalid:,}")
+        print(f"  Corrupt NPZ Files:           {corrupt_files}")
+        print(f"  Orphan Temporary Files:      {orphan_temps}")
+        print(f"  Manifest / Disk Reconciled:  {'PASS' if len(tmc2_manifest_tiles) == actual_disk_files else 'FAIL'}")
+        print(f"  Total Disk Consumed:         {total_disk_bytes / (1024**3):.2f} GB ({total_disk_bytes / (1024**2):.2f} MB)")
+        print(f"  Total Network Transferred:   {self.total_network_bytes / (1024**3):.2f} GB ({self.total_network_bytes / (1024**2):.2f} MB)")
+        print(f"  Generation Time:             {global_elapsed / 3600:.2f} hours ({global_elapsed:.1f} seconds)")
+        print(f"  Average Throughput:          {avg_throughput:.2f} tiles/sec")
+        print(f"  Peak RAM Usage:              {get_peak_ram_mb():.2f} MB")
+        print(f"  Final Integrity Status:      {'PASS' if completed and len(tmc2_completed) == len(tmc2_products) else 'INCOMPLETE'}")
+
+        print("\nB. TMC-2 PRODUCTS 16–36 STATUS TABLE")
+        print("-" * 105)
+        print(f"{'Idx':3s} | {'Product ID':42s} | {'Sensor':6s} | {'Split':5s} | {'Expected':9s} | {'Valid Existing':14s} | {'Missing/Invalid':15s} | {'Resume Status':15s}")
+        print("-" * 105)
+        for i, p in enumerate(tmc2_products, 1):
+            pid = p["product_id"]
+            sensor = p["sensor"]
+            split = p["split"]
+            _, _, exp_t = calculate_product_grid(p["width"], p["height"])
+            gen_t = sum(1 for t in tmc2_manifest_tiles.values() if t.get("product_id") == pid)
             miss_t = exp_t - gen_t
             status = "COMPLETE" if pid in completed_prods else (f"INTERRUPTED ({gen_t}/{exp_t})" if gen_t > 0 else "NOT STARTED")
             print(f"{i:02d}  | {pid:42s} | {sensor:6s} | {split:5s} | {exp_t:9d} | {gen_t:14d} | {miss_t:15d} | {status:15s}")
@@ -826,6 +914,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full 36-Product Dataset Generation Pipeline (STEP 46)")
     parser.add_argument("--audit-only", action="store_true", help="Run pre-generation audit and startup recovery audit only")
     parser.add_argument("--ohrc-only", action="store_true", help="Generate OHRC products only (Products 1-15)")
+    parser.add_argument("--tmc2-only", action="store_true", help="Generate TMC-2 products only (Products 16-36)")
     parser.add_argument("--limit-products", type=int, default=None, help="Limit maximum number of products to process")
     parser.add_argument("--product-idx", type=int, default=None, help="Process a single product by 1-based index (1..36)")
     parser.add_argument("--checkpoint-interval", type=int, default=25, help="Row strip checkpoint interval for manifest persistence (default 25)")
@@ -845,5 +934,5 @@ if __name__ == "__main__":
         success = generator.generate_product(idx, prod)
         sys.exit(0 if success else 1)
     else:
-        generator.run_full_generation(limit_products=args.limit_products, ohrc_only=args.ohrc_only)
+        generator.run_full_generation(limit_products=args.limit_products, ohrc_only=args.ohrc_only, tmc2_only=args.tmc2_only)
 
