@@ -1,0 +1,16 @@
+{
+  "files.exclude": {
+    "**/*ch2_ohr_ncp*": true,
+    "**/dataset": true,
+    "**/hf_ohrc_export": true,
+    "**/temp_bench": true,
+    "**/*.npz": true
+  },
+  "search.exclude": {
+    "**/*ch2_ohr_ncp*": true,
+    "**/dataset": true,
+    "**/hf_ohrc_export": true,
+    "**/temp_bench": true,
+    "**/*.npz": true
+  }
+}

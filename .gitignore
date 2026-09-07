@@ -30,5 +30,10 @@ temp_bench/
 hf_ohrc_export/
 *.log
 
+# Dataset tile patterns
+*ch2_ohr_ncp*
+*.npz
+
+
 
 
