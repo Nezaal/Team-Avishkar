@@ -17,6 +17,8 @@ import os
 os.environ["PYTHONUNBUFFERED"] = "1"
 import sys
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import shutil
 import math
@@ -118,6 +120,7 @@ class DatasetGenerator:
         self.checkpoint_interval = max(1, checkpoint_interval)
         
         os.makedirs(self.tiles_dir, exist_ok=True)
+        self.manifest_lock = threading.Lock()
         self.manifest = self._load_or_init_manifest()
         
         with open(catalog_path, encoding="utf-8") as f:
@@ -150,25 +153,26 @@ class DatasetGenerator:
             return manifest_data
 
     def save_manifest(self, manifest_data: Dict[str, Any], indent: Optional[int] = None):
-        """Save manifest atomically using compact JSON by default and Windows retry loop."""
-        tmp_path = self.manifest_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            if indent is not None:
-                json.dump(manifest_data, f, indent=indent)
-            else:
-                json.dump(manifest_data, f)
-        for attempt in range(6):
-            try:
-                os.replace(tmp_path, self.manifest_path)
-                return
-            except (PermissionError, OSError):
-                if attempt == 5:
-                    try:
-                        shutil.move(tmp_path, self.manifest_path)
-                        return
-                    except Exception:
-                        raise
-                time.sleep(0.1 * (2 ** attempt))
+        with self.manifest_lock:
+            """Save manifest atomically using compact JSON by default and Windows retry loop."""
+            tmp_path = self.manifest_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                if indent is not None:
+                    json.dump(manifest_data, f, indent=indent)
+                else:
+                    json.dump(manifest_data, f)
+            for attempt in range(6):
+                try:
+                    os.replace(tmp_path, self.manifest_path)
+                    return
+                except (PermissionError, OSError):
+                    if attempt == 5:
+                        try:
+                            shutil.move(tmp_path, self.manifest_path)
+                            return
+                        except Exception:
+                            raise
+                    time.sleep(0.1 * (2 ** attempt))
 
     def startup_recovery_audit(self) -> Dict[str, Any]:
         """Inspect dataset files, reconcile manifest, organize tiles into product dirs."""
@@ -355,7 +359,7 @@ class DatasetGenerator:
             return False, f"DISK SAFETY GUARD TRIGGERED: Insufficient space! {msg}"
         return True, f"DISK SAFETY OK: {msg}"
 
-    def generate_product(self, prod_idx: int, product: Dict[str, Any]) -> bool:
+    def generate_product(self, prod_idx: int, product: Dict[str, Any], max_workers: int = 1) -> bool:
         """Generate a single product sequentially tile-by-tile using row-strip batching."""
         pid = product["product_id"]
         sensor = product["sensor"]
@@ -411,7 +415,8 @@ class DatasetGenerator:
         prod_new_tiles = 0
 
         # Iterate over row strips (stride = 512)
-        for r_idx in range(n_rows):
+        def _process_row_strip(r_idx):
+            nonlocal prod_bytes_written, prod_network_bytes, prod_http_requests, prod_new_tiles
             r_start = r_idx * TILE_SIZE
             r_end = min(r_start + TILE_SIZE, h)
             strip_height = r_end - r_start
@@ -422,7 +427,7 @@ class DatasetGenerator:
                 for c_idx in range(n_cols)
             ]
             if all(tid in done_tiles for tid in strip_tile_ids):
-                continue
+                return True
 
             # Periodic Disk Safety Check before downloading strip
             safe, disk_msg = self.run_disk_safety_check(expected_tiles - len(done_tiles) - prod_new_tiles)
@@ -446,10 +451,12 @@ class DatasetGenerator:
                     timeout=20.0
                 )
                 prod_http_requests += 1
-                self.total_http_requests += 1
+                with self.manifest_lock:
+                    self.total_http_requests += 1
                 strip_bytes = row_strip.nbytes
                 prod_network_bytes += strip_bytes
-                self.total_network_bytes += strip_bytes
+                with self.manifest_lock:
+                    self.total_network_bytes += strip_bytes
             except Exception as e:
                 print(f"\n[NETWORK ERROR] Failed to fetch row strip r={r_start}..{r_end} for {pid}: {e}")
                 self.save_manifest(self.manifest)
@@ -514,9 +521,11 @@ class DatasetGenerator:
                 tile_stat = os.stat(tile_full_path)
                 written_size = tile_stat.st_size
                 prod_bytes_written += written_size
-                self.total_bytes_written += written_size
+                with self.manifest_lock:
+                        self.total_bytes_written += written_size
                 prod_new_tiles += 1
-                self.total_tiles_generated += 1
+                with self.manifest_lock:
+                        self.total_tiles_generated += 1
 
                 # Update measured average tile size
                 self.measured_avg_tile_bytes = (
@@ -553,15 +562,18 @@ class DatasetGenerator:
                     "rel_filepath": tile_rel_path
                 }
 
-                self.manifest["tiles"][tile_id] = tile_record
-                done_tiles[tile_id] = tile_record
+                with self.manifest_lock:
+                        self.manifest["tiles"][tile_id] = tile_record
+                with self.manifest_lock:
+                        done_tiles[tile_id] = tile_record
 
             # Clean up row strip memory reference
             del row_strip
             gc.collect()
 
             # Update in-memory tile count
-            self.manifest["total_tiles"] = len(self.manifest["tiles"])
+            with self.manifest_lock:
+                    self.manifest["total_tiles"] = len(self.manifest["tiles"])
 
             # Checkpointed manifest persistence (every checkpoint_interval row strips or last strip)
             if (r_idx + 1) % self.checkpoint_interval == 0 or (r_idx + 1) == n_rows:
@@ -581,6 +593,20 @@ class DatasetGenerator:
                     f"Speed: {speed:5.1f} tiles/s | "
                     f"RAM: {ram_mb:.1f}MB | Free Disk: {free_space_gb:.1f}GB"
                 )
+
+            return True
+
+        # Iterate over row strips
+        if max_workers <= 1:
+            for r_idx in range(n_rows):
+                if _process_row_strip(r_idx) is False:
+                    return False
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_process_row_strip, r) for r in range(n_rows)]
+                for future in as_completed(futures):
+                    if future.result() is False:
+                        return False
 
         # Product Completion Validation
         elapsed = time.time() - prod_start_time
@@ -609,7 +635,7 @@ class DatasetGenerator:
 
         return True
 
-    def run_full_generation(self, limit_products: Optional[int] = None, ohrc_only: bool = False, tmc2_only: bool = False) -> bool:
+    def run_full_generation(self, limit_products: Optional[int] = None, ohrc_only: bool = False, tmc2_only: bool = False, max_workers: int = 1) -> bool:
         """Run product-by-product dataset generation."""
         if ohrc_only:
             header_title = "STARTING STEP 46 — OHRC DATASET GENERATION PIPELINE (PRODUCTS 01-15 ONLY)"
@@ -917,6 +943,7 @@ if __name__ == "__main__":
     parser.add_argument("--tmc2-only", action="store_true", help="Generate TMC-2 products only (Products 16-36)")
     parser.add_argument("--limit-products", type=int, default=None, help="Limit maximum number of products to process")
     parser.add_argument("--product-idx", type=int, default=None, help="Process a single product by 1-based index (1..36)")
+    parser.add_argument("--workers", type=int, default=1, help="Number of concurrent network threads")
     parser.add_argument("--checkpoint-interval", type=int, default=25, help="Row strip checkpoint interval for manifest persistence (default 25)")
     args = parser.parse_args()
 
@@ -934,5 +961,5 @@ if __name__ == "__main__":
         success = generator.generate_product(idx, prod)
         sys.exit(0 if success else 1)
     else:
-        generator.run_full_generation(limit_products=args.limit_products, ohrc_only=args.ohrc_only, tmc2_only=args.tmc2_only)
+        generator.run_full_generation(limit_products=args.limit_products, ohrc_only=args.ohrc_only, tmc2_only=args.tmc2_only, max_workers=args.workers)
 
