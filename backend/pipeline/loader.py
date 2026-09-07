@@ -20,6 +20,13 @@ from typing import Dict, Any, Optional, Tuple, Union
 
 import numpy as np
 
+try:
+    import torch
+    from torch.utils.data import Dataset as TorchDataset
+except ImportError:
+    TorchDataset = object
+
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CATALOG_FILE = os.path.join(ROOT, "ground_truth", "product_catalog.json")
 
@@ -458,3 +465,129 @@ def load_pair(ohrc_id, tmc2_id, catalog_path=None):
     """Convenience function to load an image pair."""
     loader = ImageLoader(catalog_path)
     return loader.load_pair(ohrc_id, tmc2_id)
+
+
+class OHRCTileDataset(TorchDataset):
+    """
+    PyTorch-compatible streaming dataset loader for OHRC preprocessed 512x512 tiles.
+
+    Loads tile metadata lazily from dataset_manifest.json and streams .npz tile arrays
+    ('raw', 'preprocessed', 'mask') on demand during training and evaluation.
+    """
+
+    def __init__(
+        self,
+        root_dir: Optional[str] = None,
+        manifest_path: Optional[str] = None,
+        split: Optional[str] = "train",
+        return_tensors: bool = True,
+        transform: Optional[Any] = None,
+    ):
+        """
+        Parameters
+        ----------
+        root_dir : str, optional
+            Path to streaming_dataset root directory.
+            Defaults to <PROJECT_ROOT>/dataset/streaming_dataset.
+        manifest_path : str, optional
+            Path to dataset_manifest.json file.
+            Defaults to <root_dir>/dataset_manifest.json.
+        split : str, optional
+            Filter tiles by split: 'train', 'val', 'test', or None / 'all' for no filtering.
+            Defaults to 'train'.
+        return_tensors : bool, optional
+            If True, converts arrays to PyTorch Tensors. Defaults to True.
+        transform : callable, optional
+            Optional transform to apply on the sample dictionary.
+        """
+        if root_dir is None:
+            root_dir = os.path.join(ROOT, "dataset", "streaming_dataset")
+        self.root_dir = os.path.abspath(root_dir)
+
+        if manifest_path is None:
+            manifest_path = os.path.join(self.root_dir, "dataset_manifest.json")
+        self.manifest_path = os.path.abspath(manifest_path)
+
+        self.split = split
+        self.return_tensors = return_tensors
+        self.transform = transform
+
+        if not os.path.exists(self.manifest_path):
+            raise FileNotFoundError(f"Dataset manifest not found at: {self.manifest_path}")
+
+        # Load manifest JSON once on init (store metadata records only)
+        with open(self.manifest_path, "r", encoding="utf-8") as f:
+            manifest_data = json.load(f)
+
+        raw_tiles = manifest_data.get("tiles", manifest_data)
+        if isinstance(raw_tiles, dict):
+            records = list(raw_tiles.values())
+        elif isinstance(raw_tiles, list):
+            records = raw_tiles
+        else:
+            records = []
+
+        # Filter by dataset_split if specified
+        if self.split and self.split.lower() != "all":
+            target_split = self.split.lower()
+            self.records = [
+                rec for rec in records
+                if isinstance(rec, dict) and (rec.get("dataset_split") or rec.get("split", "")).lower() == target_split
+            ]
+        else:
+            self.records = [rec for rec in records if isinstance(rec, dict)]
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if idx < 0 or idx >= len(self.records):
+            raise IndexError(f"Index {idx} out of range for dataset with length {len(self.records)}")
+
+        rec = self.records[idx]
+        tile_id = rec.get("tile_id", "")
+        product_id = rec.get("product_id", "")
+        sensor = rec.get("sensor", "OHRC")
+        dataset_split = rec.get("dataset_split") or rec.get("split", "unknown")
+
+        # Resolve rel_filepath relative to root_dir
+        rel_path = rec.get("rel_filepath")
+        if rel_path:
+            norm_rel_path = os.path.normpath(rel_path)
+            npz_path = os.path.join(self.root_dir, norm_rel_path)
+        else:
+            npz_path = os.path.join(self.root_dir, "tiles", f"{tile_id}.npz")
+
+        if not os.path.exists(npz_path):
+            raise FileNotFoundError(f"Tile .npz file not found at: {npz_path}")
+
+        # Lazy NPZ load: open context, read arrays, copy, and close file immediately
+        with np.load(npz_path) as data:
+            raw_arr = np.copy(data["raw"])
+            prep_arr = np.copy(data["preprocessed"])
+            mask_arr = np.copy(data["mask"])
+
+        if self.return_tensors and TorchDataset is not object:
+            raw_out = torch.from_numpy(raw_arr)
+            prep_out = torch.from_numpy(prep_arr)
+            mask_out = torch.from_numpy(mask_arr)
+        else:
+            raw_out = raw_arr
+            prep_out = prep_arr
+            mask_out = mask_arr
+
+        sample = {
+            "raw": raw_out,
+            "preprocessed": prep_out,
+            "mask": mask_out,
+            "tile_id": tile_id,
+            "product_id": product_id,
+            "sensor": sensor,
+            "dataset_split": dataset_split,
+        }
+
+        if self.transform is not None:
+            sample = self.transform(sample)
+
+        return sample
+
