@@ -93,8 +93,11 @@ def register(request: RegistrationRequest):
     source_roi = centered_roi(12000, 90148, 8192)
     reference_roi = centered_roi(12000, 93693, 8192)
     
-    a, ma = store.assemble(pair["ohrc_product_id"], source_roi, 6)
-    b, mb = store.assemble(pair["tmc2_product_id"], reference_roi, 6)
+    src_id = pair.get("source_product_id") or pair.get("ohrc_product_id")
+    ref_id = pair.get("reference_product_id") or pair.get("tmc2_product_id")
+    
+    a, ma = store.assemble(src_id, source_roi, 6)
+    b, mb = store.assemble(ref_id, reference_roi, 6)
     
     sa, sm, rb, rm, ts, tr, rr, native_target = prepare(a, ma, b, mb, source_roi, reference_roi, 0.25, 0.25, config)
     
