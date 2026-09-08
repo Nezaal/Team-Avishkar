@@ -6,11 +6,14 @@ Here is exactly what each section of the dashboard means, how to interpret it, a
 
 ---
 
-## 1. Registration Result (Visual Overlay)
-This is the ultimate visual proof that our pipeline works. It takes the target image (OHRC Image B) and warps the source image (OHRC Image A) over it using the calculated transformation matrix.
+## 1. Registration Result Box (The Visual Overlay)
+This top-right panel is the core interactive centerpiece of the dashboard. It provides the ultimate visual proof that the Deep Learning pipeline has successfully aligned the two lunar surfaces. 
 
-* **Before/After Slider (Overlay Mode):** By dragging the slider left and right, you can see the exact same terrain before and after the algorithm aligns it. You should point out to the judges how crater rims, which might initially be shifted by hundreds of pixels, instantly "snap" into perfect alignment when the slider moves.
-* **Checkerboard Mode:** This mode creates an alternating grid of Image A and Image B. If the registration failed, the crater edges would look broken or jagged across the grid lines. A successful registration results in perfectly continuous crater rims seamlessly crossing the grid squares.
+**What is happening behind the scenes:** The AI has calculated a 3x3 geometric transformation matrix. The backend uses this matrix to literally "warp" the pixel coordinates of the Source Image (Image A) so they overlay perfectly onto the Target Image (Image B), correcting for shift, scale, and rotation.
+
+**How to use it during the pitch:**
+* **Before/After Slider (Overlay Mode):** This is your main demonstration tool. The slider lets you dynamically wipe back and forth between the unaligned raw image and the mathematically aligned image. As you drag the slider, tell the judges to focus on a specific crater rim. They will see the crater instantly "snap" from its incorrect, shifted position into perfect pixel-perfect alignment.
+* **Checkerboard Mode:** This toggles the view into a black-and-white grid pattern, alternating squares of Image A and Image B. **Why this matters:** If the registration was even slightly wrong, the crater rims would look jagged, disconnected, or broken across the grid lines. When the registration is perfect, the crater edges flow continuously and seamlessly across the alternating squares, proving the geometry is locked in.
 
 ---
 
