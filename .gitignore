@@ -27,4 +27,6 @@ ground_truth/pradan_browser
 scratch/
 pradan_downloads/
 *.log
-
+
+baseline_outputs/
+debug.py

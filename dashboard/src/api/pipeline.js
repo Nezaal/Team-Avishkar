@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 export async function fetchPairs() {
   const res = await fetch(`${API_BASE}/pairs`);
@@ -88,13 +88,20 @@ export function transformResult(raw) {
     sameSensor,
 
     correspondences,
-    matches: correspondences.slice(0, 200).map((c) => ({
-      src: { x: c.ohrc_x, y: c.ohrc_y },
-      ref: { x: c.tmc2_x, y: c.tmc2_y },
-      confidence: c.match_confidence,
-      inlier: c.inlier,
-      error: c.error_tmc2_px,
-    })),
+    matches: [...correspondences]
+      .sort((a, b) => {
+        if (a.inlier && !b.inlier) return -1;
+        if (!a.inlier && b.inlier) return 1;
+        return (b.match_confidence || 0) - (a.match_confidence || 0);
+      })
+      .slice(0, 200)
+      .map((c) => ({
+        src: { x: c.ohrc_x, y: c.ohrc_y },
+        ref: { x: c.tmc2_x, y: c.tmc2_y },
+        confidence: c.match_confidence,
+        inlier: c.inlier,
+        error: c.error_tmc2_px,
+      })),
 
     correspondence: {
       scatterPoints: correspondences.map((c) => ({ x: c.ohrc_x, y: c.ohrc_y })),

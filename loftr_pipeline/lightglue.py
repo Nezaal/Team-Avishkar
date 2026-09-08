@@ -105,10 +105,16 @@ def run_lightglue(config: RunConfig, store=None, run_id=None):
         
         matrix, inliers, reason = estimate(p0, native_target, config.model, config.ransac_threshold)
         
+        registered = overlap = None
         if matrix is not None:
             result["status"] = "REGISTERED_UNVERIFIED"
             result["metrics"]["inliers"] = int(inliers.sum())
             result["metrics"]["inlier_ratio"] = float(inliers.mean())
+            
+            hwork = rr @ matrix
+            registered = cv2.warpPerspective(sa, hwork, (rb.shape[1], rb.shape[0]))
+            warped_mask = cv2.warpPerspective(sm, hwork, (rb.shape[1], rb.shape[0]), flags=cv2.INTER_NEAREST)
+            overlap = cv2.bitwise_and(warped_mask, rm)
         else:
             result["reason"] = reason
             result["metrics"]["inliers"] = 0
@@ -124,7 +130,7 @@ def run_lightglue(config: RunConfig, store=None, run_id=None):
                                      for s, t, c, i in zip(raw_source, raw_reference, scores, inliers)]
 
         LOG.info("Saving visual artifacts...")
-        write_artifacts(output_dir, result, sa, rb, p0, p1, scores, inliers)
+        write_artifacts(output_dir, result, sa, rb, p0, p1, scores, inliers, registered, overlap)
         
         result["elapsed_seconds"] = round(time.monotonic() - start, 3)
         result["artifacts"]["result"] = "result.json"

@@ -1,126 +1,203 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import uvicorn
-import sys, os, json, cv2
+import sys, os, json, cv2, time, uuid
 import numpy as np
-import urllib.request
-from io import BytesIO
+import torch
+from pathlib import Path
+import logging
 
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-from pipeline.cv_pipeline import register_images
-from config import get_huggingface_config, get_local_storage_config
+from lightglue import LightGlue, SuperPoint, utils
+from loftr_pipeline.data import TileStore, centered_roi
+from loftr_pipeline.pipeline import prepare, RunConfig
+from loftr_pipeline.matching import filter_matches, estimate, residual_metrics
+from loftr_pipeline.artifacts import write_artifacts
+from loftr_pipeline.matching import LoFTRMatcher
 
-app = FastAPI(title="ChandraMatch CV API - Tile Engine")
+app = FastAPI(title="ChandraMatch CV API")
 
-def get_remote_npz(url: str, token: str = None) -> bytes:
-    req = urllib.request.Request(url)
-    if token and token != "YOUR_HF_TOKEN":
-        req.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as response:
-            return response.read()
-    except Exception as e:
-        print(f"Failed to fetch {url}: {e}")
-        return None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/api/pipeline/run_tiles/{ohrc_tile_id}/{tmc2_tile_id}")
-async def run_pipeline_on_tiles(ohrc_tile_id: str, tmc2_tile_id: str):
-    """
-    Executes the SIFT CV Pipeline directly on two pre-generated .npz ML tiles.
-    Uses the 'preprocessed' arrays directly from the .npz files.
-    """
-    hf_config = get_huggingface_config()
-    local_config = get_local_storage_config()
+class RegistrationRequest(BaseModel):
+    pair_id: str
+    algorithm: str = "SIFT"
+    device: str = "cuda"
+
+def run_sift(sa, rb, sm, rm):
+    sift = cv2.SIFT_create()
+    k1, d1 = sift.detectAndCompute(sa, mask=sm)
+    k2, d2 = sift.detectAndCompute(rb, mask=rm)
+    if d1 is None or d2 is None or len(k1) == 0 or len(k2) == 0:
+        return np.empty((0,2)), np.empty((0,2)), np.empty(0), 0
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(d1, d2, k=2)
+    good = []
+    scores = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good.append(m)
+            scores.append(1.0 - (m.distance / n.distance))
+    p0 = np.float32([k1[m.queryIdx].pt for m in good])
+    p1 = np.float32([k2[m.trainIdx].pt for m in good])
+    return p0, p1, np.array(scores), len(k1) + len(k2)
+
+def run_loftr(sa, rb, sm, rm, matcher):
+    p0, p1, scores = matcher(sa, rb, sm, rm)
+    return p0, p1, scores, 0
+
+def run_lightglue(sa, rb, sm, rm, lg_matcher, sp_extractor, device):
+    def prep_tensor(x):
+        return torch.from_numpy(x).float().unsqueeze(0).unsqueeze(0).to(device) / 255.0
+    img0 = prep_tensor(sa)
+    img1 = prep_tensor(rb)
+    with torch.inference_mode():
+        feats0 = sp_extractor.extract(img0)
+        feats1 = sp_extractor.extract(img1)
+        matches01 = lg_matcher({"image0": feats0, "image1": feats1})
+    feats0, feats1, matches01 = [utils.rbd(x) for x in [feats0, feats1, matches01]]
+    kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
+    m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
+    p0 = m_kpts0.cpu().numpy()
+    p1 = m_kpts1.cpu().numpy()
+    scores = matches01["scores"].cpu().numpy()
+    return p0, p1, scores, len(kpts0)
+
+@app.get("/pairs")
+def get_pairs():
+    return {"pairs": [
+        {"pair_id": "pair_020", "region": "OHRC Baseline", "ohrc_resolution_m": 0.25, "tmc2_resolution_m": 0.25, "resolution_ratio": 1.0, "ohrc_product_id": "ch2_ohr_ncp_20200825T1322594314_d_img_d18", "tmc2_product_id": "ch2_ohr_ncp_20200825T1716291272_d_img_d18"}
+    ]}
+
+@app.post("/register")
+def register(request: RegistrationRequest):
+    run_id = uuid.uuid4().hex
+    out_dir = Path(ROOT_DIR) / "baseline_outputs" / run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
     
-    use_remote_first = hf_config.get("use_remote_first", True)
-    hf_token = hf_config.get("api_key", None)
-    base_remote = hf_config.get("dataset_base_url", "https://huggingface.co/datasets/akshitjn/my-large-dataset/resolve/main/")
-    local_base = local_config.get("ml_tiles_path", "dataset/streaming_dataset/tiles/")
-
-    ohrc_product = ohrc_tile_id.split("__")[0]
-    tmc2_product = tmc2_tile_id.split("__")[0]
-
-    ohrc_array = None
-    ohrc_mask = None
-    tmc2_array = None
-    tmc2_mask = None
-    source_used = "None"
+    store = TileStore(local_root=ROOT_DIR, cache_dir="C:/hfcache", offline=True)
+    pair = store.pair(request.pair_id)
+    config = RunConfig(pair_id=request.pair_id, max_size=1024, local_root=".", ransac_threshold=3.0)
     
-    # 1. TRY HUGGING FACE FIRST
-    if use_remote_first:
-        print("Attempting to fetch .npz tiles from Hugging Face...")
-        ohrc_url = base_remote + f"streaming_dataset/tiles/{ohrc_product}/{ohrc_tile_id}.npz"
-        tmc2_url = base_remote + f"streaming_dataset/tiles/{tmc2_product}/{tmc2_tile_id}.npz"
-        
-        ohrc_bytes = get_remote_npz(ohrc_url, hf_token)
-        tmc2_bytes = get_remote_npz(tmc2_url, hf_token)
-        
-        if ohrc_bytes and tmc2_bytes:
-            try:
-                with np.load(BytesIO(ohrc_bytes)) as data:
-                    ohrc_array = data['preprocessed']
-                    ohrc_mask = data['mask']
-                with np.load(BytesIO(tmc2_bytes)) as data:
-                    tmc2_array = data['preprocessed']
-                    tmc2_mask = data['mask']
-                source_used = "Hugging Face"
-                print("Successfully loaded .npz tiles from Hugging Face.")
-            except Exception as e:
-                print(f"Failed to parse remote .npz file: {e}")
-                ohrc_array = None
-                tmc2_array = None
+    source_roi = centered_roi(12000, 90148, 8192)
+    reference_roi = centered_roi(12000, 93693, 8192)
+    
+    a, ma = store.assemble(pair["ohrc_product_id"], source_roi, 6)
+    b, mb = store.assemble(pair["tmc2_product_id"], reference_roi, 6)
+    
+    sa, sm, rb, rm, ts, tr, rr, native_target = prepare(a, ma, b, mb, source_roi, reference_roi, 0.25, 0.25, config)
+    
+    method = request.algorithm
+    
+    if method == "SIFT":
+        p0, p1, scores, detected = run_sift(sa, rb, sm, rm)
+    elif method == "LoFTR":
+        matcher = LoFTRMatcher(device=request.device)
+        p0, p1, scores, detected = run_loftr(sa, rb, sm, rm, matcher)
+    else: # LightGlue
+        extractor = SuperPoint(max_num_keypoints=4096).eval().to(request.device)
+        lg = LightGlue(features='superpoint').eval().to(request.device)
+        p0, p1, scores, detected = run_lightglue(sa, rb, sm, rm, lg, extractor, request.device)
 
-    # 2. FALLBACK TO LOCAL STORAGE
-    if ohrc_array is None or tmc2_array is None:
-        print(f"Falling back to local storage in {local_base}...")
-        local_ohrc_path = os.path.join(BACKEND_DIR, "..", local_base, ohrc_product, f"{ohrc_tile_id}.npz")
-        local_tmc2_path = os.path.join(BACKEND_DIR, "..", local_base, tmc2_product, f"{tmc2_tile_id}.npz")
+    p0, p1, scores = filter_matches(p0, p1, scores, sm, rm, 0.1)
+    
+    # Map p1 to native coordinates of reference image
+    native_target = np.c_[p1, np.ones(len(p1))] @ np.linalg.inv(rr).T
+    native_target = native_target[:, :2] / native_target[:, 2:]
+    
+    matrix, inliers, reason = estimate(p0, native_target, model="affine", threshold=3.0)
+    inliers_count = int(inliers.sum()) if inliers is not None else 0
+    
+    metrics = {
+        "detected_features": detected,
+        "raw_matches": len(p0) + (len(p0) if method != "LoFTR" else 0),
+        "filtered_matches": len(p0),
+        "RANSAC_inliers": inliers_count,
+        "inlier_ratio": inliers_count / len(p0) if len(p0) > 0 else 0,
+        "matcher_confidence": float(np.median(scores)) if len(scores) > 0 else 0.0
+    }
+    
+    if matrix is not None and inliers_count > 0:
+        errs, metrics_resid = residual_metrics(matrix, p0, native_target, inliers)
+        metrics["reprojection_RMSE"] = metrics_resid.get("inlier_rmse_tmc2_px", None)
+        metrics["median_residual"] = metrics_resid.get("inlier_median_tmc2_px", None)
         
-        if not os.path.exists(local_ohrc_path) or not os.path.exists(local_tmc2_path):
-            raise HTTPException(status_code=404, detail="Tiles not found remotely or locally.")
+        hwork = rr @ matrix
+        registered = cv2.warpPerspective(sa, hwork, (rb.shape[1], rb.shape[0]))
+        warped_mask = cv2.warpPerspective(sm, hwork, (rb.shape[1], rb.shape[0]), flags=cv2.INTER_NEAREST)
+        overlap = cv2.bitwise_and(warped_mask, rm)
+        
+        corrs = []
+        for i in range(len(p0)):
+            corrs.append({
+                "ohrc_x": float(p0[i][0]),
+                "ohrc_y": float(p0[i][1]),
+                "tmc2_x": float(p1[i][0]),
+                "tmc2_y": float(p1[i][1]),
+                "match_confidence": float(scores[i]),
+                "inlier": bool(inliers[i]),
+                "error_tmc2_px": float(errs[i]) if 'errs' in locals() and i < len(errs) else None
+            })
             
-        try:
-            with np.load(local_ohrc_path) as data:
-                ohrc_array = data['preprocessed']
-                ohrc_mask = data['mask']
-            with np.load(local_tmc2_path) as data:
-                tmc2_array = data['preprocessed']
-                tmc2_mask = data['mask']
-            source_used = "Local Storage"
-            print("Successfully loaded .npz tiles from Local Storage.")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Corrupted local .npz file: {e}")
-
-    # 3. RUN SIFT CV PIPELINE
-    try:
-        # Pre-process arrays for OpenCV SIFT (Ensure uint8 format)
-        if ohrc_array.dtype != np.uint8:
-            ohrc_array = cv2.normalize(ohrc_array, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        if tmc2_array.dtype != np.uint8:
-            tmc2_array = cv2.normalize(tmc2_array, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        if ohrc_mask.dtype != np.uint8:
-            ohrc_mask = (ohrc_mask * 255).astype(np.uint8)
-        if tmc2_mask.dtype != np.uint8:
-            tmc2_mask = (tmc2_mask * 255).astype(np.uint8)
-
-        source_prep = {"image": ohrc_array, "mask": ohrc_mask, "scale_x": 1.0, "scale_y": 1.0}
-        ref_prep = {"image": tmc2_array, "mask": tmc2_mask, "scale_x": 1.0, "scale_y": 1.0, "original_height": 512}
-
-        # Execute
-        res = register_images(source_prep, ref_prep, {"tmc2_height": 512})
-
-        return {
-            "status": res.get("status", "FAILED"),
-            "metrics": res.get("metrics", {}),
-            "transformation_matrix": res.get("transformation_matrix", []),
-            "data_source": source_used,
-            "architecture": "NPZ_TILE_MATCHING"
+        result_dict = {"correspondences": corrs, "pair_id": request.pair_id, "status": "SUCCESS", "transformation": {"model": "affine"}}
+        write_artifacts(out_dir, result_dict, sa, rb, p0, p1, scores, inliers, registered, overlap)
+        artifacts = result_dict.get("artifacts", {})
+        
+        # Downscale images for web viewing (browser memory limit)
+        for name, path_str in artifacts.items():
+            if name in ["source", "reference", "overlay", "checkerboard", "matches"]:
+                img_path = out_dir / path_str
+                if img_path.exists():
+                    img = cv2.imread(str(img_path))
+                    if img is not None and max(img.shape[:2]) > 2048:
+                        scale = 2048 / max(img.shape[:2])
+                        small = cv2.resize(img, (0,0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                        cv2.imwrite(str(img_path), small)
+    else:
+        artifacts = {}
+        corrs = []
+        
+    result = {
+        "run_id": run_id,
+        "pair_id": request.pair_id,
+        "status": "SUCCESS" if inliers_count > 10 else "FAILED",
+        "correspondences": corrs,
+        "artifacts": artifacts,
+        "metrics": metrics,
+        "reprojectionError": {
+            "mean": metrics.get("reprojection_RMSE"),
+            "median": metrics.get("median_residual")
+        },
+        "correspondence": {
+            "totalPoints": metrics["detected_features"],
+            "filteredPoints": metrics["filtered_matches"],
+            "inlierCount": metrics["RANSAC_inliers"],
+            "inlierPct": round(metrics["inlier_ratio"] * 100)
         }
+    }
+    
+    with open(out_dir / "result.json", "w") as f:
+        json.dump(result, f)
+        
+    return result
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CV Pipeline failed on tile: {e}")
+@app.get("/runs/{run_id}/artifacts/{name}")
+def get_artifact(run_id: str, name: str):
+    path = Path(ROOT_DIR) / "baseline_outputs" / run_id / name
+    if not path.is_file():
+        raise HTTPException(404, "Artifact not found")
+    return FileResponse(path)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8001)

@@ -2,78 +2,45 @@ import { useRef, useEffect, useState } from 'react';
 import { artifactUrl } from '../api/pipeline';
 
 export default function ImagePairPreview({ result, liveMode }) {
-  const canvasRef = useRef(null);
   const [matchesImg, setMatchesImg] = useState(null);
-  const [sourceImg, setSourceImg] = useState(null);
-  const [refImg, setRefImg] = useState(null);
+  const [sourceImgSrc, setSourceImgSrc] = useState(null);
+  const [refImgSrc, setRefImgSrc] = useState(null);
+  const [hoveredMatch, setHoveredMatch] = useState(null);
 
   useEffect(() => {
     if (!liveMode || !result?.runId) return;
     const arts = result.artifacts || {};
-    if (arts.matches) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => setMatchesImg(img);
-      img.src = artifactUrl(result.runId, arts.matches);
-    }
-    if (arts.source) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => setSourceImg(img);
-      img.src = artifactUrl(result.runId, arts.source);
-    }
-    if (arts.reference) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => setRefImg(img);
-      img.src = artifactUrl(result.runId, arts.reference);
-    }
+    if (arts.matches) setMatchesImg(artifactUrl(result.runId, arts.matches));
+    if (arts.source) setSourceImgSrc(artifactUrl(result.runId, arts.source));
+    if (arts.reference) setRefImgSrc(artifactUrl(result.runId, arts.reference));
   }, [result?.runId, liveMode]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+  const hasLiveImages = sourceImgSrc && refImgSrc;
 
-    if (matchesImg) {
-      const aspect = matchesImg.width / matchesImg.height;
-      canvas.width = 860;
-      canvas.height = Math.round(860 / aspect);
-      ctx.drawImage(matchesImg, 0, 0, canvas.width, canvas.height);
-      return;
-    }
+  // Use natural image dimensions for scaling
+  const srcW = result?.sourceImage?.width || 8192;
+  const srcH = result?.sourceImage?.height || 8192;
+  const refW = result?.referenceImage?.width || 8192;
+  const refH = result?.referenceImage?.height || 8192;
 
-    if (sourceImg && refImg) {
-      const imgW = 410;
-      const gap = 40;
-      const srcH = Math.round(imgW * (sourceImg.height / sourceImg.width));
-      const refH = Math.round(imgW * (refImg.height / refImg.width));
-      const H = Math.max(srcH, refH);
-      canvas.width = imgW * 2 + gap;
-      canvas.height = H;
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(sourceImg, 0, (H - srcH) / 2, imgW, srcH);
-      ctx.drawImage(refImg, imgW + gap, (H - refH) / 2, imgW, refH);
-      drawMatchLines(ctx, result, imgW, gap, srcH, refH, H);
-      return;
-    }
+  // Render dimensions for the SVG overlay
+  const renderW = 410;
+  const gap = 40;
+  const renderSrcH = Math.round(renderW * (srcH / srcW));
+  const renderRefH = Math.round(renderW * (refH / refW));
+  const H = Math.max(renderSrcH, renderRefH);
+  const totalW = renderW * 2 + gap;
 
-    canvas.width = 860;
-    canvas.height = 380;
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, 860, 380);
-    drawProceduralMoon(ctx, 5, 5, 405, 370, 42);
-    drawProceduralMoon(ctx, 450, 5, 405, 370, 99);
-    drawMatchLines(ctx, result, 405, 40, 370, 370, 380);
-  }, [matchesImg, sourceImg, refImg, result]);
+  const sortedMatches = [...(result?.matches || [])].sort((a, b) =>
+    a.inlier === b.inlier ? 0 : a.inlier ? 1 : -1
+  );
 
   return (
     <div className="card card-large">
       <div className="card-header">
         <h3>
           Image Pair Preview
-          <span className="info-icon" title="Feature matching between OHRC source and TMC-2 reference">i</span>
+          <span className="info-icon" title="Feature matching between source and reference">i</span>
         </h3>
         {result?.matches && (
           <span className="match-count">
@@ -82,80 +49,66 @@ export default function ImagePairPreview({ result, liveMode }) {
           </span>
         )}
       </div>
-      <canvas ref={canvasRef} className="match-canvas" />
+
+      <div className="match-canvas-container" style={{ position: 'relative', width: '100%', maxWidth: '860px', margin: '0 auto', background: '#0f172a', borderRadius: '8px', overflow: 'hidden' }}>
+        {hasLiveImages ? (
+          <div style={{ position: 'relative', width: '100%', paddingBottom: `${(H / totalW) * 100}%` }}>
+            {/* Absolute positioning to scale smoothly */}
+            <img src={sourceImgSrc} alt="Source" style={{ position: 'absolute', left: 0, top: `${((H - renderSrcH) / 2 / H) * 100}%`, width: `${(renderW / totalW) * 100}%`, height: `${(renderSrcH / H) * 100}%`, objectFit: 'contain' }} />
+            <img src={refImgSrc} alt="Reference" style={{ position: 'absolute', left: `${((renderW + gap) / totalW) * 100}%`, top: `${((H - renderRefH) / 2 / H) * 100}%`, width: `${(renderW / totalW) * 100}%`, height: `${(renderRefH / H) * 100}%`, objectFit: 'contain' }} />
+            
+            <svg viewBox={`0 0 ${totalW} ${H}`} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+              {sortedMatches.map((m, i) => {
+                const sx = (m.src.x / srcW) * renderW;
+                const sy = (H - renderSrcH) / 2 + (m.src.y / srcH) * renderSrcH;
+                const rx = renderW + gap + (m.ref.x / refW) * renderW;
+                const ry = (H - renderRefH) / 2 + (m.ref.y / refH) * renderRefH;
+                const color = m.inlier ? '#22c55e' : '#ef4444';
+                const isHovered = hoveredMatch === i;
+                
+                return (
+                  <g key={i} style={{ pointerEvents: 'auto', cursor: 'crosshair' }}
+                     onMouseEnter={() => setHoveredMatch(i)}
+                     onMouseLeave={() => setHoveredMatch(null)}>
+                    <line x1={sx} y1={sy} x2={rx} y2={ry} stroke={color} strokeWidth={isHovered ? 2.5 : (m.inlier ? 1.3 : 0.8)} opacity={isHovered ? 1 : (m.inlier ? 0.7 : 0.3)} />
+                    <circle cx={sx} cy={sy} r={isHovered ? 5 : 3} fill={color} opacity={isHovered ? 1 : 0.8} />
+                    <circle cx={rx} cy={ry} r={isHovered ? 5 : 3} fill={color} opacity={isHovered ? 1 : 0.8} />
+                  </g>
+                );
+              })}
+            </svg>
+            
+            {hoveredMatch !== null && (
+              <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(255,255,255,0.95)', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', color: '#0f172a', fontWeight: 600, pointerEvents: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
+                {sortedMatches[hoveredMatch].inlier ? 'Inlier Match' : 'Outlier Match'} (Conf: {sortedMatches[hoveredMatch].confidence?.toFixed(2)})
+                {sortedMatches[hoveredMatch].error != null && <span> | Error: {sortedMatches[hoveredMatch].error?.toFixed(2)}px</span>}
+              </div>
+            )}
+          </div>
+        ) : matchesImg ? (
+          <img src={matchesImg} alt="Matches" style={{ display: 'block', width: '100%', height: 'auto' }} />
+        ) : (
+          <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#475569', fontSize: '14px' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="1.5" style={{ marginBottom: '16px' }}>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            Select a dataset and run the pipeline to visualize local satellite imagery.
+          </div>
+        )}
+      </div>
+
       <div className="image-labels">
         <div className="image-label">
-          <strong>{result?.sourceImage?.label || 'OHRC (High Resolution)'}</strong>
-          <span>{result?.sourceImage?.width} x {result?.sourceImage?.height} &bull; {result?.sourceImage?.resolution}</span>
+          <strong>{result?.sourceImage?.label || 'Source Image'}</strong>
+          <span>{result?.sourceImage?.width || 0} x {result?.sourceImage?.height || 0}</span>
         </div>
         <div className="image-label">
-          <strong>{result?.referenceImage?.label || 'TMC-2 (Medium Resolution)'}</strong>
-          <span>{result?.referenceImage?.width} x {result?.referenceImage?.height} &bull; {result?.referenceImage?.resolution}</span>
+          <strong>{result?.referenceImage?.label || 'Reference Image'}</strong>
+          <span>{result?.referenceImage?.width || 0} x {result?.referenceImage?.height || 0}</span>
         </div>
       </div>
     </div>
   );
-}
-
-function drawMatchLines(ctx, result, imgW, gap, srcH, refH, H) {
-  if (!result?.matches) return;
-  const srcMaxX = Math.max(...result.matches.map((m) => m.src.x), 1);
-  const srcMaxY = Math.max(...result.matches.map((m) => m.src.y), 1);
-  const refMaxX = Math.max(...result.matches.map((m) => m.ref.x), 1);
-  const refMaxY = Math.max(...result.matches.map((m) => m.ref.y), 1);
-
-  for (const m of result.matches) {
-    const sx = 5 + (m.src.x / srcMaxX) * (imgW - 10);
-    const sy = (H - srcH) / 2 + 5 + (m.src.y / srcMaxY) * (srcH - 10);
-    const rx = imgW + gap + (m.ref.x / refMaxX) * (imgW - 10);
-    const ry = (H - refH) / 2 + 5 + (m.ref.y / refMaxY) * (refH - 10);
-
-    const color = m.inlier ? '#22c55e' : '#ef4444';
-
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(rx, ry);
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = m.inlier ? 0.7 : 0.3;
-    ctx.lineWidth = m.inlier ? 1.3 : 0.8;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    for (const [px, py] of [[sx, sy], [rx, ry]]) {
-      ctx.beginPath();
-      ctx.arc(px, py, 3, 0, Math.PI * 2);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-  }
-}
-
-function drawProceduralMoon(ctx, ox, oy, w, h, seed) {
-  let s = seed;
-  const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(ox, oy, w, h);
-  ctx.clip();
-  ctx.fillStyle = '#2a2a2a';
-  ctx.fillRect(ox, oy, w, h);
-  for (let i = 0; i < 15; i++) {
-    const cx = ox + r() * w, cy = oy + r() * h, cr = 8 + r() * 40;
-    ctx.beginPath();
-    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(100,100,100,${0.3 + r() * 0.3})`;
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    const g = ctx.createRadialGradient(cx - cr * 0.2, cy - cr * 0.2, 0, cx, cy, cr);
-    g.addColorStop(0, 'rgba(60,60,60,0.2)');
-    g.addColorStop(1, 'rgba(20,20,20,0.4)');
-    ctx.fillStyle = g;
-    ctx.fill();
-  }
-  for (let i = 0; i < 300; i++) {
-    ctx.fillStyle = `rgba(${50 + r() * 50},${50 + r() * 50},${50 + r() * 50},0.4)`;
-    ctx.fillRect(ox + r() * w, oy + r() * h, 1 + r() * 3, 1 + r() * 3);
-  }
-  ctx.restore();
 }

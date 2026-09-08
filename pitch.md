@@ -1,39 +1,17 @@
-# 🚀 Lunar Image Co-Registration: Architecture & Progress Report
-**Team Avishkar | SIH26166**
+Hello everyone, we are Team Avishkar, and our project is focused on autonomous lunar image co-registration using Chandrayaan-2 imagery.
 
-## 1. The Problem Statement & Our Research
-Our objective is to build an automated pipeline to co-register ultra-high-resolution Chandrayaan-2 OHRC imagery (0.25 m/px) onto regional TMC-2 maps (4.48 m/px). 
+Our objective is to automatically identify and align the same physical lunar regions across overlapping Chandrayaan-2 OHRC acquisitions to establish a highly accurate registration baseline. We are currently registering distinct OHRC observations against an OHRC reference image (such as our high-overlap pair_020) to validate our pipeline.
 
-During our initial research, we discovered three critical bottlenecks that cause traditional computer vision (like SIFT) to fail:
-* **Extreme Scale Variance:** An ~18x resolution difference makes standard feature descriptors completely incompatible.
-* **Temporal Illumination Inversion:** Images taken months or years apart have drastically different sun angles. Crater shadows invert, tricking traditional algorithms into interpreting craters as mountains.
-* **Telemetry Drift:** ISRO's satellite GPS metadata can drift by over a kilometer, meaning blind geographical cropping extracts non-overlapping terrain.
+During our research, we identified several major challenges, including changes in illumination that can invert crater shadows across different acquisition times, and inaccuracies in satellite telemetry that can cause geographic drift and misalignment.
 
-## 2. Data Processing & Tiling Architecture
-To handle massive, gigabyte-sized satellite images without causing catastrophic memory bottlenecks, we built a highly scalable data-streaming engine:
-* **Image Tiling:** We sliced the massive lunar maps into over **65,000+ fixed-size (512x512) NumPy (`.npz`) tiles**.
-* **Preprocessing & Masking:** Each tile contains the raw image, a preprocessed state, and a validity mask (to ignore no-data regions).
-* **Lazy-Loading (`TileStore`):** Instead of loading everything into RAM, our pipeline uses a central `dataset_manifest.json` to instantly locate and load only the exact coordinate tiles requested, reducing memory overhead by 99%.
+To handle the massive, ultra-high-resolution satellite datasets efficiently, we developed a streaming and tiling architecture. Large gigabyte-sized images are divided into fixed 512-by-512 tiles, with each tile containing its raw data, preprocessed image, and validity mask. A central manifest allows us to load only the exact tiles required for processing, preventing memory bottlenecks instead of loading the entire dataset into RAM.
 
-## 3. The Deep Learning Pipeline
-Because traditional algorithms failed against shadow inversion and scale, we moved to a State-of-the-Art Deep Learning architecture:
-* **SuperPoint & LightGlue:** We replaced SIFT with AI-driven sparse keypoint matching. SuperPoint extracts highly distinct, robust features, while LightGlue uses a Transformer-based architecture to contextually correlate those features across massive scale gaps.
-* **Geometric Estimation:** We pass the neural network's matches through Lowe's ratio tests and RANSAC algorithms to filter out fake matches and mathematically compute the true geometric transformation (Affine/Homography).
-* **Structural Edge Matching:** To bypass shadow inversion entirely, we also implemented Phase Correlation (Fast Fourier Transform) on Canny Edge-maps to structurally match crater rims independent of lighting.
+For correspondence, we moved beyond traditional SIFT-based matching and integrated state-of-the-art AI-based feature matching using SuperPoint and LightGlue. These models extract highly robust keypoints and establish context-aware correspondences across different lunar observations. We then use RANSAC and geometric estimation to reject incorrect matches and calculate the precise sub-pixel transformation between the images.
 
-## 4. Full-Stack Integration
-We didn't just build a python script; we built a modular software application:
-* **FastAPI Backend:** The entire Deep Learning pipeline runs on a high-performance, GPU-accelerated backend. It processes registration requests on the fly and returns structured JSON metrics and correspondence coordinates.
-* **React & Vite Dashboard:** A responsive web UI where users can select image pairs, trigger the AI backend, and visually inspect the geometric matches, outliers, and reprojection errors drawn dynamically on an HTML5 Canvas.
+The system is integrated into a full-stack application, with a FastAPI backend handling the deep learning inference and a React dashboard allowing users to select image pairs and visually inspect match lines, outliers, registration residuals, and accuracy metrics.
 
-## 5. What Has Been Done Till Now
-✅ **Dataset Generation:** Successfully generated and compressed the 65,616-tile OHRC dataset.
-✅ **AI Engine Validation:** Successfully integrated both LoFTR and SuperPoint+LightGlue models, running flawlessly on local CUDA environments.
-✅ **Pipeline Verification:** The backend chain (Loader → Pair Selection → Neural Network Extraction → RANSAC → Metrics) executes end-to-end perfectly on spatially adjacent OHRC tiles.
-✅ **Full-Stack Connection:** The React frontend and FastAPI backend are actively communicating, successfully triggering inference and passing coordinate data.
+So far, we have generated the local OHRC tile dataset, integrated and validated our AI models locally on CUDA, verified the backend pipeline end-to-end for OHRC-to-OHRC registration, and connected a fully functional, offline frontend with the backend.
 
-## 6. Future Plans & Next Steps
-* **Overcome Telemetry Drift:** Since the AI pipeline works perfectly, our next step is implementing a sliding-window grid search (or manual ROI injections) to find the true geographic overlap of TMC-2 images, bypassing the inaccurate ISRO GPS coordinates.
-* **Cross-Sensor Finalization:** Successfully align the 0.25m OHRC features onto the 4.48m TMC-2 map to generate the final registered output images.
-* **Domain-Specific Fine-Tuning:** If required, fine-tune the LightGlue neural network weights specifically on lunar crater topologies to increase confidence scores.
-* **Deployment:** Containerize the backend and frontend for seamless cloud deployment and judging.
+Our next goal is to overcome telemetry drift, identify true geographic overlaps efficiently, and calculate precise sub-pixel registration accuracy metrics between distinct OHRC observations.
+
+Thank you.

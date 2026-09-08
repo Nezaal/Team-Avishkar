@@ -76,9 +76,13 @@ def get_peak_ram_mb() -> float:
 def get_final_url(initial_url: str, timeout: float = 15.0) -> str:
     """Resolve HTTP redirects to direct CDN storage URL."""
     try:
-        req = urllib.request.Request(initial_url, method='HEAD')
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.geturl()
+        import requests
+        headers = {}
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
+        resp = requests.head(initial_url, headers=headers, timeout=timeout, allow_redirects=True)
+        return resp.url
     except Exception:
         return initial_url
 

@@ -108,27 +108,22 @@ def read_remote_window(
     start_byte = byte_offset + row_start * bytes_per_row
     end_byte = byte_offset + row_end * bytes_per_row - 1
 
-    req = urllib.request.Request(
-        img_url,
-        headers={"Range": f"bytes={start_byte}-{end_byte}"}
-    )
+    import requests
+    headers = {"Range": f"bytes={start_byte}-{end_byte}"}
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            status_code = resp.status
-            raw_bytes = resp.read()
-    except urllib.error.HTTPError as e:
-        if e.code in (206, 200):
-            status_code = e.code
-            raw_bytes = e.read()
-        else:
-            raise RuntimeError(f"Remote HTTP Range request failed with status code {e.code}: {e.reason}")
+        resp = requests.get(img_url, headers=headers, timeout=timeout, allow_redirects=True)
+        status_code = resp.status_code
+        raw_bytes = resp.content
     except Exception as e:
         raise RuntimeError(f"Remote HTTP request failed: {e}")
 
     # 3. Response Validation
     if status_code not in (206, 200):
-        raise RuntimeError(f"Expected HTTP 206 Partial Content, received status {status_code}")
+        raise RuntimeError(f"Expected HTTP 206 Partial Content, received status {status_code}. Response: {raw_bytes[:100]}")
 
     if len(raw_bytes) != expected_bytes:
         raise RuntimeError(

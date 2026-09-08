@@ -25,8 +25,8 @@ class RunConfig:
     revision: str = "main"
     geometry_repo: str = "Nezaal/pradan-dataset"
     geometry_revision: str = "main"
-    local_root: str | None = None
-    offline: bool = False
+    local_root: str | None = "."
+    offline: bool = True
     cache_dir: str = "C:/hfcache"
     output_root: str = str(ROOT / "dataset/loftr_runs")
     source_roi: list[int] | None = None

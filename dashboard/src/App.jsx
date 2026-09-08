@@ -6,22 +6,23 @@ import ReprojectionError from './components/ReprojectionError';
 import TransformationSummary from './components/TransformationSummary';
 import PipelineConfig from './components/PipelineConfig';
 import MetricsBanner from './components/MetricsBanner';
-import { MOCK_RESULT } from './data/mockData';
 import { runPipeline, transformResult } from './api/pipeline';
 
 const DEFAULT_CONFIG = {
-  pair_id: 'pair_018',
+  pair_id: 'pair_020',
   device: 'cpu',
   model: 'affine',
   ransac_threshold: 5.0,
   min_confidence: 0.5,
   max_size: 512,
   source_side: 4096,
+  source_roi: [0, 0, 4096, 4096],
+  reference_roi: [0, 0, 4096, 4096]
 };
 
 export default function App() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [result, setResult] = useState(MOCK_RESULT);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [liveMode, setLiveMode] = useState(false);
@@ -62,12 +63,9 @@ export default function App() {
           </div>
         </div>
         <div className="header-actions">
-          {result?.timing && liveMode && (
+          {result?.timing && (
             <span className="timing-badge">{result.timing}s</span>
           )}
-          <span className={`method-badge ${liveMode ? 'live' : 'mock'}`}>
-            {liveMode ? result?.method?.replace(/_/g, ' ') || 'Live' : 'Demo Data'}
-          </span>
           <button className="run-btn" onClick={handleRun} disabled={loading}>
             {loading ? (
               <><span className="spinner" /> Running...</>

@@ -64,43 +64,12 @@ export default function PipelineConfig({ config, onChange, disabled }) {
       <div className="config-separator" />
 
       <div className="config-group">
-        <label>Model</label>
-        <select value={config.model} onChange={(e) => set('model', e.target.value)} disabled={disabled}>
-          <option value="affine">Affine</option>
-          <option value="homography">Homography</option>
+        <label>Algorithm</label>
+        <select value={config.algorithm || 'SIFT'} onChange={(e) => onChange({ ...config, algorithm: e.target.value })} disabled={disabled}>
+          <option value="SIFT">SIFT (Baseline)</option>
+          <option value="LoFTR">LoFTR (Transformer)</option>
+          <option value="LightGlue">SuperPoint + LightGlue</option>
         </select>
-      </div>
-      <div className="config-group">
-        <label>RANSAC Thr.</label>
-        <input type="number" value={config.ransac_threshold}
-          onChange={(e) => set('ransac_threshold', parseFloat(e.target.value))}
-          min="0.5" max="10" step="0.5" disabled={disabled} />
-      </div>
-      <div className="config-group">
-        <label>Min Conf.</label>
-        <input type="number" value={config.min_confidence}
-          onChange={(e) => set('min_confidence', parseFloat(e.target.value))}
-          min="0" max="1" step="0.05" disabled={disabled} />
-      </div>
-      <div className="config-group">
-        <label>Device</label>
-        <select value={config.device} onChange={(e) => set('device', e.target.value)} disabled={disabled}>
-          <option value="cuda">CUDA</option>
-          <option value="cpu">CPU</option>
-          <option value="auto">Auto</option>
-        </select>
-      </div>
-      <div className="config-group">
-        <label>Max Size</label>
-        <input type="number" value={config.max_size}
-          onChange={(e) => set('max_size', parseInt(e.target.value))}
-          min="128" max="1024" step="64" disabled={disabled} />
-      </div>
-      <div className="config-group">
-        <label>Source Side</label>
-        <input type="number" value={config.source_side}
-          onChange={(e) => set('source_side', parseInt(e.target.value))}
-          min="1024" max="12000" step="512" disabled={disabled} />
       </div>
     </div>
   );

@@ -46,7 +46,7 @@ def health():
 @app.get("/pairs")
 def pairs():
     try:
-        store = TileStore()
+        store = TileStore(offline=True, local_root=".")
         return {"pairs": store.available_pairs(), "revision": store.revision}
     except Exception as exc:
         raise HTTPException(503, f"Dataset manifest unavailable: {exc}") from exc
